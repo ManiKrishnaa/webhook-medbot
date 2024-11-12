@@ -1,37 +1,49 @@
 const express = require('express');
+const bodyParser = require('body-parser');
 const axios = require('axios');
 const app = express();
+app.use(bodyParser.json());
 
-app.use(express.json());
-
+// Define a route for Dialogflow webhook
 app.post('/webhook', async (req, res) => {
-    const intentName = req.body.queryResult.intent.displayName;
+  const queryResult = req.body.queryResult;
+  const medication = queryResult.parameters.Medication;
 
-    if (intentName === 'Medication Information') {
-        const medication = req.body.queryResult.parameters['Medication'];
+  try {
+    // Fetching medication information from the FDA API
+    const apiResponse = await axios.get(`https://api.fda.gov/drug/label.json?search=${medication}&limit=1`);
+    
+    // Check if data was returned from the FDA API
+    if (apiResponse.data.results && apiResponse.data.results.length > 0) {
+      const medicationData = apiResponse.data.results[0];
 
-        try {
-            const apiResponse = await axios.get(`https://api.fda.gov/drug/label.json?search=${medication}&limit=1`);
-            const drugInfo = apiResponse.data.results[0];
+      // Extracting fields like purpose and description
+      const purpose = medicationData.purpose ? medicationData.purpose.join(', ') : 'Not specified';
+      const description = medicationData.description ? medicationData.description.join(' ') : 'Description not available.';
 
-            const responseText = `
-                **Brand Name**: ${drugInfo.openfda.brand_name[0]}
-                **Generic Name**: ${drugInfo.openfda.generic_name[0]}
-                **Indication**: ${drugInfo.drug_indication[0]}
-                **Dosage**: ${drugInfo.dosage_and_administration[0]}
-            `;
+      // Creating the fulfillment text response
+      const fulfillmentText = `Here is some information about ${medication}: Purpose: ${purpose}. Description: ${description}.`;
 
-            res.json({
-                fulfillmentText: responseText
-            });
-        } catch (error) {
-            res.json({
-                fulfillmentText: "Sorry, I couldn't retrieve the medication information at the moment."
-            });
-        }
+      // Send back response to Dialogflow
+      res.json({
+        fulfillmentText: fulfillmentText
+      });
+    } else {
+      // If no results were found
+      res.json({
+        fulfillmentText: `I'm sorry, I couldn't find any information about ${medication} at the moment.`
+      });
     }
+  } catch (error) {
+    console.error('Error fetching medication information:', error);
+    res.json({
+      fulfillmentText: "Sorry, I couldn't retrieve the medication information at the moment."
+    });
+  }
 });
 
-app.listen(3000, () => {
-    console.log('Server is running on port 3000');
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
